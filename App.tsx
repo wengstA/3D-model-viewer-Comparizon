@@ -152,14 +152,6 @@ const App: React.FC = () => {
     event.target.value = '';
   };
 
-  const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    comparisonItems.forEach(item => {
-        (item.tags || []).forEach(tag => tagSet.add(tag));
-    });
-    return Array.from(tagSet).sort();
-  }, [comparisonItems]);
-
   const filteredItems = useMemo(() => 
     activeFilters.length > 0
       ? comparisonItems.filter(item =>
@@ -238,7 +230,7 @@ const App: React.FC = () => {
                 viewers={viewers}
                 onVote={handleVote}
                 onTagsUpdate={handleTagsUpdate}
-                allTags={allTags}
+                comparisonItems={comparisonItems}
                 activeFilters={activeFilters}
                 onFilterChange={handleFilterChange}
                 onClearFilters={() => setActiveFilters([])}

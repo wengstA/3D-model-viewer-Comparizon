@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+// FIX: An explicit side-effect import is needed to ensure TypeScript loads the
+// global type augmentations for custom elements from 'types.ts'.
+import '../types';
 import type { ComparisonItem, Viewer, Asset } from '../types';
 import { Placeholder } from './Placeholder';
 import { SpinnerIcon, TagIcon, CloseIcon } from './icons';
 
-// FIX: The 'model-viewer' global type is now correctly handled in `types.ts`, so the redundant local declaration has been removed.
 interface ComparisonViewProps {
   items: ComparisonItem[];
   isLoading: boolean;
   viewers: Viewer[];
   onVote: (itemKey: string, vote: string) => void;
   onTagsUpdate: (itemKey: string, tags: string[]) => void;
-  allTags: string[];
+  comparisonItems: ComparisonItem[];
   activeFilters: string[];
   onFilterChange: (tag: string) => void;
   onClearFilters: () => void;
@@ -61,7 +63,11 @@ const RenderableAsset: React.FC<{
 
 const PREDEFINED_TAGS = ["Lighting Issue", "Wrong Color", "Bad Texture", "Model Error", "Good Candidate"];
 
-const TagEditor: React.FC<{ tags: string[], onTagsUpdate: (newTags: string[]) => void }> = ({ tags, onTagsUpdate }) => {
+const TagEditor: React.FC<{ 
+    tags: string[], 
+    onTagsUpdate: (newTags: string[]) => void,
+    allTags: string[] 
+}> = ({ tags, onTagsUpdate, allTags }) => {
     const [inputValue, setInputValue] = useState('');
 
     const addTag = (tag: string) => {
@@ -83,7 +89,10 @@ const TagEditor: React.FC<{ tags: string[], onTagsUpdate: (newTags: string[]) =>
         }
     };
     
-    const availablePredefinedTags = PREDEFINED_TAGS.filter(pt => !tags.includes(pt));
+    const suggestionTags = useMemo(() => {
+        const combined = new Set([...PREDEFINED_TAGS, ...allTags]);
+        return Array.from(combined).filter(t => !tags.includes(t)).sort();
+    }, [tags, allTags]);
 
     return (
         <div>
@@ -108,9 +117,9 @@ const TagEditor: React.FC<{ tags: string[], onTagsUpdate: (newTags: string[]) =>
                 />
                 <TagIcon className="absolute top-1/2 right-2.5 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>
-            {availablePredefinedTags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                    {availablePredefinedTags.map(tag => (
+            {suggestionTags.length > 0 && (
+                <div className="mt-2 max-h-28 overflow-y-auto p-2 border border-gray-200 rounded-md bg-white/50 flex flex-wrap gap-1.5">
+                    {suggestionTags.map(tag => (
                         <button key={tag} onClick={() => addTag(tag)} className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-md hover:bg-gray-300">
                             + {tag}
                         </button>
@@ -164,9 +173,10 @@ interface ComparisonCardProps {
     viewers: Viewer[];
     onVote: (itemKey: string, vote: string) => void;
     onTagsUpdate: (itemKey: string, tags: string[]) => void;
+    allTags: string[];
 }
 
-const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate }) => {
+const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate, allTags }) => {
     const gridStyle = {
       gridTemplateColumns: `repeat(${viewers.length > 0 ? viewers.length : 1}, minmax(0, 1fr))`
     };
@@ -192,7 +202,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
                             asset={item.assets[index]}
                             altText={viewer.title}
                             placeholderText={`No file in "${viewer.title}"`}
-                            isTall={!is3DModel(item.assets[index]?.path)}
+                            isTall={is3DModel(item.assets[index]?.path)}
                         />
                     </div>
                 ))}
@@ -231,6 +241,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
                     <TagEditor 
                         tags={item.tags || []} 
                         onTagsUpdate={(newTags) => onTagsUpdate(item.key, newTags)}
+                        allTags={allTags}
                     />
                 </div>
             </div>
@@ -244,11 +255,19 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     viewers, 
     onVote, 
     onTagsUpdate,
-    allTags,
+    comparisonItems,
     activeFilters,
     onFilterChange,
     onClearFilters
 }) => {
+    const allTags = useMemo(() => {
+        const tagSet = new Set<string>();
+        comparisonItems.forEach(item => {
+            (item.tags || []).forEach(tag => tagSet.add(tag));
+        });
+        return Array.from(tagSet).sort();
+    }, [comparisonItems]);
+    
     if (isLoading) {
         return (
             <div className="flex flex-col items-center justify-center p-10 mt-8 bg-white rounded-lg shadow">
@@ -267,7 +286,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         );
     }
     
-    if (items.length === 0 && activeFilters.length === 0) {
+    if (items.length === 0 && activeFilters.length === 0 && comparisonItems.length === 0) {
         return (
              <div className="text-center p-10 mt-8 bg-white rounded-lg shadow">
                 <h3 className="text-xl font-semibold text-gray-900">Ready to Compare</h3>
@@ -309,6 +328,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                     viewers={viewers}
                     onVote={onVote}
                     onTagsUpdate={onTagsUpdate}
+                    allTags={allTags}
                 />
             ))}
         </div>
