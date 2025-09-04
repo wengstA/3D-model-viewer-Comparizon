@@ -62,15 +62,15 @@ const App: React.FC = () => {
             directoryName={inputDirName}
           />
           <FileUpload
-            title="Version 1 Renders"
-            description="The first set of model outputs."
+            title="Old Model Directory"
+            description="Upload the directory containing the old model renders."
             onFilesSelected={handleV1FilesSelected}
             fileCount={v1Files?.length || 0}
             directoryName={v1DirName}
           />
           <FileUpload
-            title="Version 2 Renders"
-            description="The second set of model outputs."
+            title="New Model Directory"
+            description="Upload the directory containing the new model renders."
             onFilesSelected={handleV2FilesSelected}
             fileCount={v2Files?.length || 0}
             directoryName={v2DirName}

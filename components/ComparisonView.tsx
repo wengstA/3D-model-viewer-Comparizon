@@ -3,18 +3,16 @@ import type { ComparisonItem } from '../types';
 import { Placeholder } from './Placeholder';
 import { SpinnerIcon } from './icons';
 
-// Fix: Correctly typed the 'model-viewer' custom element for JSX.
+// Fix: Correctly typed the 'model-viewer' custom element for JSX to resolve TypeScript errors.
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      // Fix: Updated the type definition for the 'model-viewer' custom element to use a more robust
-      // type, which resolves the "Property 'model-viewer' does not exist" TypeScript error.
-      'model-viewer': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+      'model-viewer': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
         src?: string | null;
         alt?: string;
         'camera-controls'?: boolean;
         'auto-rotate'?: boolean;
-      };
+      }, HTMLElement>;
     }
   }
 }
@@ -93,7 +91,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, v1DirName, v2DirN
                 </div>
                 <div className="flex flex-col md:col-span-2">
                     <h4 className="font-semibold text-center mb-2 text-gray-800">
-                        {v1DirName ? `${v1DirName} Render` : 'Version 1 Render'}
+                        {v1DirName ? `Old: ${v1DirName}` : 'Old Model Render'}
                     </h4>
                     <RenderableAsset
                         url={item.v1Url}
@@ -105,7 +103,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, v1DirName, v2DirN
                 </div>
                  <div className="flex flex-col md:col-span-2">
                     <h4 className="font-semibold text-center mb-2 text-gray-800">
-                        {v2DirName ? `${v2DirName} Render` : 'Version 2 Render'}
+                        {v2DirName ? `New: ${v2DirName}` : 'New Model Render'}
                     </h4>
                     <RenderableAsset
                         url={item.v2Url}
