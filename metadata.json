@@ -1,5 +1,5 @@
 {
   "name": "3D Model Comparison Tool",
-  "description": "An application to visually compare two versions of 3D model renders against a set of input images. Users can upload three corresponding directories, and the tool will match and display the files side-by-side for easy comparison.",
+  "description": "A dynamic application to visually compare multiple sets of 3D models and images. Users can add, remove, and reorder viewers, upload corresponding directories, and the tool will match and display the files side-by-side in a customizable layout.",
   "requestFramePermissions": []
 }

@@ -1,5 +1,18 @@
 import { useState, useEffect } from 'react';
-import type { ComparisonItem, FileSet } from '../types';
+import type { ComparisonItem, Viewer, Asset } from '../types';
+
+const decodeFileName = (name: string): string => {
+  try {
+    let decoded = decodeURIComponent(name);
+    decoded = decoded.replace(/#U([0-9A-F]{4,5})/gi, (match, grp) => {
+      return String.fromCodePoint(parseInt(grp, 16));
+    });
+    return decoded;
+  } catch (e) {
+    console.error("Failed to decode filename:", name, e);
+    return name;
+  }
+};
 
 const getRelativePath = (path: string): string => {
   const parts = path.split('/');
@@ -9,25 +22,17 @@ const getRelativePath = (path: string): string => {
 
 const getPathWithoutExtension = (path: string): string => {
     const lastDotIndex = path.lastIndexOf('.');
-    
-    // If no dot, or it's the first character (e.g. ".env"), treat as having no extension.
     if (lastDotIndex <= 0) {
         return path;
     }
-    
     let baseName = path.substring(0, lastDotIndex);
-    
-    // Trim any trailing dots from the base name to handle variations like "file....png" vs "file.glb"
     baseName = baseName.replace(/\.+$/, '');
-    
     return baseName;
 };
 
 
 export const useFileProcessor = (
-  v1Files: FileSet,
-  v2Files: FileSet,
-  inputFiles: FileSet
+  viewers: Viewer[]
 ): { comparisonData: ComparisonItem[]; isLoading: boolean } => {
   const [comparisonData, setComparisonData] = useState<ComparisonItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -36,7 +41,7 @@ export const useFileProcessor = (
     let objectUrls: string[] = [];
     
     const processFiles = () => {
-        if (!v1Files && !v2Files && !inputFiles) {
+        if (!viewers || viewers.every(v => !v.files)) {
             setComparisonData([]);
             setIsLoading(false);
             return;
@@ -44,16 +49,16 @@ export const useFileProcessor = (
 
         setIsLoading(true);
 
-        const createFileMap = (files: FileSet): Map<string, { url: string; path: string }> => {
-            const map = new Map<string, { url: string; path: string }>();
+        const createFileMap = (files: FileList | null): Map<string, Asset> => {
+            const map = new Map<string, Asset>();
             if (!files) return map;
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                // Use a try-catch block for robustness, e.g., if webkitRelativePath is not available
                 try {
                     const fullPath = (file as any).webkitRelativePath || file.name;
                     const relativePath = getRelativePath(fullPath);
-                    const key = getPathWithoutExtension(relativePath);
+                    const decodedRelativePath = decodeFileName(relativePath);
+                    const key = getPathWithoutExtension(decodedRelativePath);
                     if (key) {
                         const url = URL.createObjectURL(file);
                         objectUrls.push(url);
@@ -66,33 +71,25 @@ export const useFileProcessor = (
             return map;
         };
 
-        const v1Map = createFileMap(v1Files);
-        const v2Map = createFileMap(v2Files);
-        const inputMap = createFileMap(inputFiles);
+        const viewerMaps = viewers.map(viewer => createFileMap(viewer.files));
 
-        const allKeys = Array.from(new Set([...v1Map.keys(), ...v2Map.keys(), ...inputMap.keys()]));
-        allKeys.sort((a, b) => a.length - b.length); // Sort by length, shortest first
+        const allKeys = Array.from(new Set(viewerMaps.flatMap(map => Array.from(map.keys()))));
+        allKeys.sort((a, b) => a.length - b.length);
 
         const canonicalKeyMap = new Map<string, string>();
         const processedKeys = new Set<string>();
 
         for (const key of allKeys) {
-            if (processedKeys.has(key)) {
-                continue;
-            }
+            if (processedKeys.has(key)) continue;
 
             const canonicalKey = key;
             canonicalKeyMap.set(key, canonicalKey);
             processedKeys.add(key);
             
             for (const otherKey of allKeys) {
-                if (processedKeys.has(otherKey)) {
-                    continue;
-                }
+                if (processedKeys.has(otherKey)) continue;
                 
-                // Group keys where the shorter key is a substring of the longer key.
-                // Since keys are sorted by length, `key` is always shorter than or equal to `otherKey`.
-                if (otherKey.includes(key)) {
+                if (otherKey.startsWith(key)) {
                     canonicalKeyMap.set(otherKey, canonicalKey);
                     processedKeys.add(otherKey);
                 }
@@ -109,28 +106,19 @@ export const useFileProcessor = (
                 }
             });
 
-            const findInMap = (map: Map<string, { url: string; path: string }>) => {
+            const findInMap = (map: Map<string, Asset>) => {
                 for (const key of groupKeys) {
-                    if (map.has(key)) {
-                        return map.get(key);
-                    }
+                    if (map.has(key)) return map.get(key);
                 }
                 return null;
             };
 
-            const v1Data = findInMap(v1Map);
-            const v2Data = findInMap(v2Map);
-            const inputData = findInMap(inputMap);
+            const assets: (Asset | null)[] = viewers.map((_, index) => {
+                const map = viewerMaps[index];
+                return findInMap(map) || null;
+            });
 
-            return {
-                key: canonicalKey,
-                v1Url: v1Data?.url || null,
-                v2Url: v2Data?.url || null,
-                inputUrl: inputData?.url || null,
-                v1Path: v1Data?.path || null,
-                v2Path: v2Data?.path || null,
-                inputPath: inputData?.path || null,
-            };
+            return { key: canonicalKey, assets };
         });
 
         setComparisonData(data);
@@ -142,7 +130,7 @@ export const useFileProcessor = (
     return () => {
       objectUrls.forEach(URL.revokeObjectURL);
     };
-  }, [v1Files, v2Files, inputFiles]);
+  }, [viewers]);
 
   return { comparisonData, isLoading };
 };
