@@ -68,7 +68,8 @@ export const ViewerCard: React.FC<ViewerCardProps> = ({
       onDragOver={onDragOver}
       onDrop={(e) => onDrop(e, viewer.id)}
       onDragEnd={onDragEnd}
-      className={`relative flex-shrink-0 w-80 bg-white rounded-xl p-6 flex flex-col items-center justify-center text-center border border-gray-200 transition-all duration-300 hover:border-sky-500 hover:shadow-lg cursor-grab ${isDragging ? 'opacity-50 border-sky-500 shadow-xl' : 'opacity-100'}`}
+      style={{ flex: `${viewer.flex} 1 0%` }}
+      className={`relative flex-shrink-0 bg-white rounded-xl p-6 flex flex-col items-center justify-center text-center border border-gray-200 transition-all duration-300 hover:border-sky-500 hover:shadow-lg cursor-grab ${isDragging ? 'opacity-50 border-sky-500 shadow-xl' : 'opacity-100'}`}
     >
       <button
         onClick={() => onRemove(viewer.id)}

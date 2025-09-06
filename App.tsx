@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewerCard } from './components/ViewerCard';
-import { ComparisonView } from './components/ComparisonView';
+import { ComparisonView, FilterControls } from './components/ComparisonView';
 import { useFileProcessor } from './hooks/useFileProcessor';
 import type { Viewer, ComparisonItem } from './types';
-import { PlusIcon, DownloadIcon, UploadCloudIcon } from './components/icons';
+import { PlusIcon, DownloadIcon, UploadCloudIcon, ChartBarIcon } from './components/icons';
+import { ResizeHandle } from './components/ResizeHandle';
+import { SummaryDrawer } from './components/SummaryDrawer';
 
 const App: React.FC = () => {
   const [viewers, setViewers] = useState<Viewer[]>([
-    { id: `viewer-${Date.now()}-1`, title: 'Input Images', files: null, directoryName: null },
-    { id: `viewer-${Date.now()}-2`, title: 'Old Model', files: null, directoryName: null },
-    { id: `viewer-${Date.now()}-3`, title: 'New Model', files: null, directoryName: null },
+    { id: `viewer-${Date.now()}-1`, title: 'Input Images', files: null, directoryName: null, flex: 1 },
+    { id: `viewer-${Date.now()}-2`, title: 'Old Model', files: null, directoryName: null, flex: 1 },
+    { id: `viewer-${Date.now()}-3`, title: 'New Model', files: null, directoryName: null, flex: 1 },
   ]);
 
   const [comparisonItems, setComparisonItems] = useState<ComparisonItem[]>([]);
@@ -36,12 +38,28 @@ const App: React.FC = () => {
   const dragOverItem = useRef<string | null>(null);
   const [dragging, setDragging] = useState<boolean>(false);
   
-  // Tag Filtering State
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  // Filtering State
+  const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
+  const [activeVoteFilter, setActiveVoteFilter] = useState<string | null>(null);
+  
+  // Summary Drawer State
+  const [isSummaryOpen, setSummaryOpen] = useState(false);
   
   // Import/Export
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  // Resizing State
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
+  const resizingData = useRef<{
+    index: number;
+    startFlex: number;
+    nextFlex: number;
+    startWidth: number;
+    nextWidth: number;
+    startX: number;
+  } | null>(null);
+
+  const MIN_VIEWER_FLEX_WIDTH = 150; // min width in pixels
 
   const addViewer = () => {
     const newViewer: Viewer = {
@@ -49,6 +67,7 @@ const App: React.FC = () => {
       title: `Viewer ${viewers.length + 1}`,
       files: null,
       directoryName: null,
+      flex: 1,
     };
     setViewers(prev => [...prev, newViewer]);
   };
@@ -80,10 +99,14 @@ const App: React.FC = () => {
     );
   };
 
-  const handleFilterChange = (tag: string) => {
-    setActiveFilters(prev => 
+  const handleTagFilterChange = (tag: string) => {
+    setActiveTagFilters(prev => 
       prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
     );
+  };
+  
+  const handleVoteFilterChange = (vote: string) => {
+      setActiveVoteFilter(prev => prev === vote ? null : vote);
   };
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, id: string) => {
@@ -152,19 +175,121 @@ const App: React.FC = () => {
     event.target.value = '';
   };
 
-  const filteredItems = useMemo(() => 
-    activeFilters.length > 0
-      ? comparisonItems.filter(item =>
-          activeFilters.every(filterTag => (item.tags || []).includes(filterTag))
-        )
-      : comparisonItems,
-    [comparisonItems, activeFilters]
+  const handleResizeMove = (e: MouseEvent) => {
+      if (!resizingData.current) return;
+
+      const { index, startFlex, nextFlex, startWidth, nextWidth, startX } = resizingData.current;
+      const deltaX = e.clientX - startX;
+
+      const newStartWidth = startWidth + deltaX;
+      const newNextWidth = nextWidth - deltaX;
+      
+      if (newStartWidth < MIN_VIEWER_FLEX_WIDTH || newNextWidth < MIN_VIEWER_FLEX_WIDTH) {
+          return;
+      }
+
+      const totalFlex = startFlex + nextFlex;
+      const totalWidth = startWidth + nextWidth;
+
+      const newStartFlex = (newStartWidth / totalWidth) * totalFlex;
+      const newNextFlex = (newNextWidth / totalWidth) * totalFlex;
+
+      setViewers(currentViewers =>
+          currentViewers.map((viewer, i) => {
+              if (i === index) return { ...viewer, flex: newStartFlex };
+              if (i === index + 1) return { ...viewer, flex: newNextFlex };
+              return viewer;
+          })
+      );
+  };
+
+  const handleResizeEnd = () => {
+      resizingData.current = null;
+      document.removeEventListener('mousemove', handleResizeMove);
+      document.removeEventListener('mouseup', handleResizeEnd);
+      document.body.style.cursor = '';
+  };
+  
+  const handleResizeStart = (e: React.MouseEvent, index: number) => {
+      e.preventDefault();
+
+      const viewerElements = viewerContainerRef.current?.children;
+      if (!viewerElements || !viewerElements[index * 2] || !viewerElements[index * 2 + 2]) return;
+
+      const currentCard = viewerElements[index * 2];
+      const nextCard = viewerElements[index * 2 + 2];
+
+      const startWidth = currentCard.getBoundingClientRect().width;
+      const nextWidth = nextCard.getBoundingClientRect().width;
+
+      resizingData.current = {
+          index,
+          startFlex: viewers[index].flex,
+          nextFlex: viewers[index + 1].flex,
+          startWidth,
+          nextWidth,
+          startX: e.clientX,
+      };
+
+      document.body.style.cursor = 'col-resize';
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+  };
+
+
+  const filteredItems = useMemo(() =>
+    comparisonItems.filter(item => {
+      const hasActiveTagFilter = activeTagFilters.length > 0;
+      const hasActiveVoteFilter = !!activeVoteFilter;
+
+      if (!hasActiveTagFilter && !hasActiveVoteFilter) {
+        return true;
+      }
+
+      const tagMatch = hasActiveTagFilter
+        ? activeTagFilters.every(filterTag => (item.tags || []).includes(filterTag))
+        : false;
+      
+      const voteMatch = hasActiveVoteFilter
+        ? item.vote === activeVoteFilter
+        : false;
+
+      if (hasActiveTagFilter && !hasActiveVoteFilter) {
+        return tagMatch;
+      }
+
+      if (!hasActiveTagFilter && hasActiveVoteFilter) {
+        return voteMatch;
+      }
+
+      if (hasActiveTagFilter && hasActiveVoteFilter) {
+        return tagMatch || voteMatch;
+      }
+
+      return false;
+    }),
+    [comparisonItems, activeTagFilters, activeVoteFilter]
   );
+  
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    comparisonItems.forEach(item => {
+        (item.tags || []).forEach(tag => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [comparisonItems]);
+  
+  const clearFilters = () => {
+    setActiveTagFilters([]);
+    setActiveVoteFilter(null);
+  };
+
+  const hasActiveFilters = activeTagFilters.length > 0 || activeVoteFilter !== null;
 
   return (
     <div className="min-h-screen bg-[#f7f7f7] text-gray-900 font-sans">
       <main className="container mx-auto px-4 py-8 md:py-12">
-        <header className="mb-10">
+        <header className="sticky top-0 z-20 bg-[#f7f7f7]/90 backdrop-blur-sm -mx-4 px-4 -mt-8 pt-8 pb-6 mb-8 border-b border-gray-200">
           <div className="text-center">
             <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900">
               Dynamic Comparison Workspace
@@ -190,28 +315,50 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 bg-sky-600 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
             >
               <DownloadIcon className="w-5 h-5" />
               Export Results
             </button>
+            <button
+              onClick={() => setSummaryOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-600 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+            >
+              <ChartBarIcon className="w-5 h-5" />
+              Show Summary
+            </button>
+          </div>
+          <div className="mt-6 max-w-6xl mx-auto">
+            <FilterControls 
+              allTags={allTags}
+              activeTagFilters={activeTagFilters}
+              onTagFilterChange={handleTagFilterChange}
+              viewers={viewers}
+              activeVoteFilter={activeVoteFilter}
+              onVoteFilterChange={handleVoteFilterChange}
+              onClear={clearFilters}
+            />
           </div>
         </header>
 
         <div className="max-w-full mx-auto p-4 border-b-2 border-gray-200">
-          <div className="flex items-start gap-6 overflow-x-auto pb-4">
-            {viewers.map((viewer) => (
-              <ViewerCard
-                key={viewer.id}
-                viewer={viewer}
-                onRemove={removeViewer}
-                onUpdate={updateViewer}
-                onDragStart={(e) => handleDragStart(e, viewer.id)}
-                onDragOver={(e) => { e.preventDefault(); handleDragEnter(e, viewer.id); }}
-                onDrop={(e) => handleDragEnd(e)}
-                onDragEnd={handleDragEnd}
-                isDragging={dragging && dragItem.current === viewer.id}
-              />
+          <div ref={viewerContainerRef} className="flex items-start gap-0 overflow-x-auto pb-4">
+            {viewers.map((viewer, index) => (
+              <React.Fragment key={viewer.id}>
+                <ViewerCard
+                  viewer={viewer}
+                  onRemove={removeViewer}
+                  onUpdate={updateViewer}
+                  onDragStart={(e) => handleDragStart(e, viewer.id)}
+                  onDragOver={(e) => { e.preventDefault(); handleDragEnter(e, viewer.id); }}
+                  onDrop={(e) => handleDragEnd(e)}
+                  onDragEnd={handleDragEnd}
+                  isDragging={dragging && dragItem.current === viewer.id}
+                />
+                {index < viewers.length - 1 && (
+                   <ResizeHandle onMouseDown={(e) => handleResizeStart(e, index)} />
+                )}
+              </React.Fragment>
             ))}
             <button
               onClick={addViewer}
@@ -231,12 +378,16 @@ const App: React.FC = () => {
                 onVote={handleVote}
                 onTagsUpdate={handleTagsUpdate}
                 comparisonItems={comparisonItems}
-                activeFilters={activeFilters}
-                onFilterChange={handleFilterChange}
-                onClearFilters={() => setActiveFilters([])}
+                hasActiveFilters={hasActiveFilters}
               />
         </div>
-
+        
+        <SummaryDrawer
+            isOpen={isSummaryOpen}
+            onClose={() => setSummaryOpen(false)}
+            items={comparisonItems}
+            viewers={viewers}
+        />
       </main>
     </div>
   );

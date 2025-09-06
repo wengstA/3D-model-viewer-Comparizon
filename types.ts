@@ -1,19 +1,6 @@
 // FIX: Using a full import of React makes the JSX namespace available for augmentation.
-import React from 'react';
-
-// Fix: Add global types for model-viewer custom element to be recognized by TypeScript in JSX.
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'model-viewer': React.HTMLAttributes<HTMLElement> & {
-        src?: string | null;
-        alt?: string;
-        'camera-controls'?: boolean;
-        'auto-rotate'?: boolean;
-      };
-    }
-  }
-}
+// FIX: Changed to namespace import for broader tsconfig compatibility.
+import * as React from 'react';
 
 export interface Asset {
   url: string;
@@ -25,6 +12,7 @@ export interface Viewer {
   title: string;
   files: FileList | null;
   directoryName: string | null;
+  flex: number;
 }
 
 export interface ComparisonItem {

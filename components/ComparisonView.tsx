@@ -1,10 +1,24 @@
-import React, { useState, useMemo } from 'react';
 // FIX: An explicit side-effect import is needed to ensure TypeScript loads the
 // global type augmentations for custom elements from 'types.ts'.
-import '../types';
-import type { ComparisonItem, Viewer, Asset } from '../types';
+import React, { useState, useMemo } from 'react';
+import { ComparisonItem, Viewer, Asset } from '../types';
 import { Placeholder } from './Placeholder';
 import { SpinnerIcon, TagIcon, CloseIcon } from './icons';
+
+// FIX: Moved global type augmentation for 'model-viewer' here to resolve type error.
+// This ensures the custom element is recognized by TypeScript in this file's JSX.
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'model-viewer': React.HTMLAttributes<HTMLElement> & {
+        src?: string | null;
+        alt?: string;
+        'camera-controls'?: boolean;
+        'auto-rotate'?: boolean;
+      };
+    }
+  }
+}
 
 interface ComparisonViewProps {
   items: ComparisonItem[];
@@ -13,9 +27,7 @@ interface ComparisonViewProps {
   onVote: (itemKey: string, vote: string) => void;
   onTagsUpdate: (itemKey: string, tags: string[]) => void;
   comparisonItems: ComparisonItem[];
-  activeFilters: string[];
-  onFilterChange: (tag: string) => void;
-  onClearFilters: () => void;
+  hasActiveFilters: boolean;
 }
 
 const is3DModel = (filePath: string | null): boolean => {
@@ -47,7 +59,6 @@ const RenderableAsset: React.FC<{
                     src={asset.url}
                     alt={altText}
                     camera-controls
-                    auto-rotate
                     className={innerClassNames}
                 />
             </div>
@@ -130,39 +141,83 @@ const TagEditor: React.FC<{
     );
 };
 
-const TagFilter: React.FC<{
+export const FilterControls: React.FC<{
     allTags: string[];
-    activeFilters: string[];
-    onFilterChange: (tag: string) => void;
+    activeTagFilters: string[];
+    onTagFilterChange: (tag: string) => void;
+    viewers: Viewer[];
+    activeVoteFilter: string | null;
+    onVoteFilterChange: (vote: string) => void;
     onClear: () => void;
-}> = ({ allTags, activeFilters, onFilterChange, onClear }) => {
-    if (allTags.length === 0) return null;
+}> = ({ allTags, activeTagFilters, onTagFilterChange, viewers, activeVoteFilter, onVoteFilterChange, onClear }) => {
+    const hasActiveFilters = activeTagFilters.length > 0 || activeVoteFilter !== null;
+    if (allTags.length === 0 && viewers.length === 0) return null;
+    
+    const isOrLogic = activeTagFilters.length > 0 && activeVoteFilter !== null;
 
     return (
-        <div className="p-4 bg-white rounded-lg shadow-sm mb-6 border border-gray-200">
-            <div className="flex items-center gap-4">
-                <h3 className="text-lg font-semibold text-gray-800 flex-shrink-0">Filter by Tag:</h3>
-                <div className="flex-grow flex flex-wrap items-center gap-2">
-                    {allTags.map(tag => (
+        <div className="p-4 bg-white/60 rounded-lg shadow-sm border border-gray-200 space-y-4">
+            {allTags.length > 0 && (
+                <div>
+                    <h3 className="text-md font-semibold text-gray-800 mb-2">Filter by Tag:</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {allTags.map(tag => (
+                            <button
+                                key={tag}
+                                onClick={() => onTagFilterChange(tag)}
+                                className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${
+                                    activeTagFilters.includes(tag)
+                                        ? 'bg-sky-500 text-white shadow'
+                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                }`}
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+             <div>
+                <h3 className="text-md font-semibold text-gray-800 mb-2">Filter by Vote:</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                    {viewers.map(viewer => (
                         <button
-                            key={tag}
-                            onClick={() => onFilterChange(tag)}
+                            key={viewer.id}
+                            onClick={() => onVoteFilterChange(viewer.id)}
                             className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${
-                                activeFilters.includes(tag)
-                                    ? 'bg-sky-500 text-white shadow'
-                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                activeVoteFilter === viewer.id
+                                ? 'bg-sky-500 text-white shadow'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                             }`}
                         >
-                            {tag}
+                            {viewer.title}
                         </button>
                     ))}
-                </div>
-                {activeFilters.length > 0 && (
-                    <button onClick={onClear} className="text-sm font-semibold text-gray-600 hover:text-sky-600 transition-colors">
-                        Clear Filter
+                    <button
+                        onClick={() => onVoteFilterChange('all_bad')}
+                        className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${
+                            activeVoteFilter === 'all_bad'
+                            ? 'bg-red-500 text-white shadow'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                    >
+                        All Bad
                     </button>
-                )}
+                </div>
             </div>
+
+            {hasActiveFilters && (
+                 <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
+                    {isOrLogic ? (
+                         <p className="text-xs text-gray-500 italic">Showing items that match all tags OR the selected vote.</p>
+                    ) : (
+                        <span></span>
+                    )}
+                    <button onClick={onClear} className="text-sm font-semibold text-gray-600 hover:text-sky-600 transition-colors">
+                        Clear All Filters
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
@@ -178,7 +233,7 @@ interface ComparisonCardProps {
 
 const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate, allTags }) => {
     const gridStyle = {
-      gridTemplateColumns: `repeat(${viewers.length > 0 ? viewers.length : 1}, minmax(0, 1fr))`
+      gridTemplateColumns: viewers.length > 0 ? viewers.map(v => `${v.flex}fr`).join(' ') : '1fr'
     };
     
     const voteStatusBorder = item.vote
@@ -256,9 +311,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     onVote, 
     onTagsUpdate,
     comparisonItems,
-    activeFilters,
-    onFilterChange,
-    onClearFilters
+    hasActiveFilters
 }) => {
     const allTags = useMemo(() => {
         const tagSet = new Set<string>();
@@ -286,7 +339,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         );
     }
     
-    if (items.length === 0 && activeFilters.length === 0 && comparisonItems.length === 0) {
+    const hasAnyFiles = viewers.some(v => v.files && v.files.length > 0);
+    if (!hasAnyFiles) {
         return (
              <div className="text-center p-10 mt-8 bg-white rounded-lg shadow">
                 <h3 className="text-xl font-semibold text-gray-900">Ready to Compare</h3>
@@ -295,28 +349,19 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         );
     }
 
-  const votedCount = items.filter(item => !!item.vote).length;
-
   return (
     <div className="mt-8">
         <div className="flex justify-between items-center mb-4 px-2">
             <h2 className="text-2xl font-bold text-gray-900">Comparison Results</h2>
             <div className="text-lg font-medium text-gray-700 bg-gray-200 px-3 py-1 rounded-full">
-                Voted: <span className="font-bold text-gray-900">{votedCount}</span> / {items.length}
+                Voted: <span className="font-bold text-gray-900">{comparisonItems.filter(i => !!i.vote).length}</span> / {comparisonItems.length}
             </div>
         </div>
         
-        <TagFilter 
-            allTags={allTags}
-            activeFilters={activeFilters}
-            onFilterChange={onFilterChange}
-            onClear={onClearFilters}
-        />
-        
-        {items.length === 0 && activeFilters.length > 0 && (
+        {items.length === 0 && hasActiveFilters && (
             <div className="text-center p-10 mt-2 bg-white rounded-lg shadow">
                 <h3 className="text-xl font-semibold text-gray-900">No Results Found</h3>
-                <p className="mt-2 text-gray-600">No items match the selected filter(s).</p>
+                <p className="mt-2 text-gray-600">No items match the selected filter(s). Try clearing the filters.</p>
             </div>
         )}
 
