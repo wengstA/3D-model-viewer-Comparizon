@@ -5,29 +5,15 @@ import { ComparisonItem, Viewer, Asset } from '../types';
 import { Placeholder } from './Placeholder';
 import { SpinnerIcon, TagIcon, CloseIcon } from './icons';
 
-// FIX: Moved global type augmentation for 'model-viewer' here to resolve type error.
-// This ensures the custom element is recognized by TypeScript in this file's JSX.
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'model-viewer': React.HTMLAttributes<HTMLElement> & {
-        src?: string | null;
-        alt?: string;
-        'camera-controls'?: boolean;
-        'auto-rotate'?: boolean;
-      };
-    }
-  }
-}
-
 interface ComparisonViewProps {
   items: ComparisonItem[];
   isLoading: boolean;
   viewers: Viewer[];
-  onVote: (itemKey: string, vote: string) => void;
+  onVote: (itemKey: string, category: string, vote: string) => void;
   onTagsUpdate: (itemKey: string, tags: string[]) => void;
   comparisonItems: ComparisonItem[];
   hasActiveFilters: boolean;
+  voteCategories: string[];
 }
 
 const is3DModel = (filePath: string | null): boolean => {
@@ -55,6 +41,7 @@ const RenderableAsset: React.FC<{
     if (is3DModel(asset.path)) {
         return (
             <div className={wrapperClassNames}>
+                {/* @ts-ignore */}
                 <model-viewer
                     src={asset.url}
                     alt={altText}
@@ -178,7 +165,7 @@ export const FilterControls: React.FC<{
                 </div>
             )}
              <div>
-                <h3 className="text-md font-semibold text-gray-800 mb-2">Filter by Vote:</h3>
+                <h3 className="text-md font-semibold text-gray-800 mb-2">Filter by Vote (Any Category):</h3>
                 <div className="flex flex-wrap items-center gap-2">
                     {viewers.map(viewer => (
                         <button
@@ -226,21 +213,32 @@ export const FilterControls: React.FC<{
 interface ComparisonCardProps {
     item: ComparisonItem;
     viewers: Viewer[];
-    onVote: (itemKey: string, vote: string) => void;
+    onVote: (itemKey: string, category: string, vote: string) => void;
     onTagsUpdate: (itemKey: string, tags: string[]) => void;
     allTags: string[];
+    voteCategories: string[];
 }
 
-const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate, allTags }) => {
+const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate, allTags, voteCategories }) => {
     const gridStyle = {
       gridTemplateColumns: viewers.length > 0 ? viewers.map(v => `${v.flex}fr`).join(' ') : '1fr'
     };
     
-    const voteStatusBorder = item.vote
-      ? item.vote === 'all_bad'
-          ? 'border-l-4 border-red-500'
-          : 'border-l-4 border-sky-500'
-      : 'border-l-4 border-transparent';
+    // Calculate border color based on votes.
+    // If any vote is 'all_bad', red. If any vote is valid viewer, blue.
+    // If mixed, prefer blue.
+    let voteStatusBorder = 'border-l-4 border-transparent';
+    const hasAnyVote = Object.keys(item.votes).length > 0;
+    
+    if (hasAnyVote) {
+        const votes = Object.values(item.votes);
+        const hasGood = votes.some(v => v !== 'all_bad');
+        if (hasGood) {
+            voteStatusBorder = 'border-l-4 border-sky-500';
+        } else {
+            voteStatusBorder = 'border-l-4 border-red-500';
+        }
+    }
 
     return (
         <div className={`bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm transition-all ${voteStatusBorder}`}>
@@ -262,35 +260,43 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
                     </div>
                 ))}
             </div>
-             <div className="p-4 bg-gray-50/70 border-t border-gray-200 space-y-4">
+             <div className="p-4 bg-gray-50/70 border-t border-gray-200 space-y-6">
                 <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold mr-2 text-gray-600">Vote:</span>
-                        {viewers.map(viewer => (
-                            <button
-                                key={viewer.id}
-                                onClick={() => onVote(item.key, viewer.id)}
-                                className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${
-                                    item.vote === viewer.id
-                                    ? 'bg-sky-500 text-white shadow-md ring-2 ring-sky-600'
-                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                }`}
-                            >
-                                {viewer.title}
-                            </button>
+                    <h5 className="text-sm font-semibold mb-3 text-gray-600">Voting:</h5>
+                    <div className="space-y-3">
+                        {voteCategories.map(category => (
+                            <div key={category} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="text-xs font-bold text-gray-500 w-32 uppercase tracking-wide">{category}</span>
+                                <div className="flex flex-wrap items-center gap-2 flex-1">
+                                    {viewers.map(viewer => (
+                                        <button
+                                            key={viewer.id}
+                                            onClick={() => onVote(item.key, category, viewer.id)}
+                                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                                                item.votes[category] === viewer.id
+                                                ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-700'
+                                                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            {viewer.title}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => onVote(item.key, category, 'all_bad')}
+                                        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                                            item.votes[category] === 'all_bad'
+                                            ? 'bg-red-500 text-white shadow-sm ring-1 ring-red-600'
+                                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        All Bad
+                                    </button>
+                                </div>
+                            </div>
                         ))}
-                        <button
-                            onClick={() => onVote(item.key, 'all_bad')}
-                            className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${
-                                item.vote === 'all_bad'
-                                ? 'bg-red-500 text-white shadow-md ring-2 ring-red-600'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                            }`}
-                        >
-                            All Bad
-                        </button>
                     </div>
                 </div>
+                
                 <div>
                     <h5 className="text-sm font-semibold mb-2 text-gray-600">Tags:</h5>
                     <TagEditor 
@@ -311,7 +317,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     onVote, 
     onTagsUpdate,
     comparisonItems,
-    hasActiveFilters
+    hasActiveFilters,
+    voteCategories
 }) => {
     const allTags = useMemo(() => {
         const tagSet = new Set<string>();
@@ -320,6 +327,9 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         });
         return Array.from(tagSet).sort();
     }, [comparisonItems]);
+    
+    // Count items that have at least one vote
+    const votedCount = comparisonItems.filter(i => Object.keys(i.votes).length > 0).length;
     
     if (isLoading) {
         return (
@@ -354,7 +364,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         <div className="flex justify-between items-center mb-4 px-2">
             <h2 className="text-2xl font-bold text-gray-900">Comparison Results</h2>
             <div className="text-lg font-medium text-gray-700 bg-gray-200 px-3 py-1 rounded-full">
-                Voted: <span className="font-bold text-gray-900">{comparisonItems.filter(i => !!i.vote).length}</span> / {comparisonItems.length}
+                Voted: <span className="font-bold text-gray-900">{votedCount}</span> / {comparisonItems.length}
             </div>
         </div>
         
@@ -374,6 +384,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                     onVote={onVote}
                     onTagsUpdate={onTagsUpdate}
                     allTags={allTags}
+                    voteCategories={voteCategories}
                 />
             ))}
         </div>

@@ -32,7 +32,8 @@ const getPathWithoutExtension = (path: string): string => {
 
 
 export const useFileProcessor = (
-  viewers: Viewer[]
+  viewers: Viewer[],
+  matchConfig: string[] | null
 ): { comparisonData: ComparisonItem[]; isLoading: boolean } => {
   const [comparisonData, setComparisonData] = useState<ComparisonItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,7 +42,9 @@ export const useFileProcessor = (
     let objectUrls: string[] = [];
     
     const processFiles = () => {
-        if (!viewers || viewers.every(v => !v.files)) {
+        // If we have no files and no config, don't do anything (unless we want to show empty rows from config? 
+        // For now, let's assume we need at least one viewer or a config to start processing).
+        if ((!viewers || viewers.every(v => !v.files)) && !matchConfig) {
             setComparisonData([]);
             setIsLoading(false);
             return;
@@ -62,6 +65,8 @@ export const useFileProcessor = (
                     if (key) {
                         const url = URL.createObjectURL(file);
                         objectUrls.push(url);
+                        // Store both exact key and potentially others if needed, 
+                        // but for now simple key matching.
                         map.set(key, { url, path: relativePath });
                     }
                 } catch (error) {
@@ -72,39 +77,59 @@ export const useFileProcessor = (
         };
 
         const viewerMaps = viewers.map(viewer => createFileMap(viewer.files));
+        let finalKeys: string[] = [];
+        let canonicalKeyMap = new Map<string, string>();
 
-        const allKeys = Array.from(new Set(viewerMaps.flatMap(map => Array.from(map.keys()))));
-        allKeys.sort((a, b) => a.length - b.length);
-
-        const canonicalKeyMap = new Map<string, string>();
-        const processedKeys = new Set<string>();
-
-        for (const key of allKeys) {
-            if (processedKeys.has(key)) continue;
-
-            const canonicalKey = key;
-            canonicalKeyMap.set(key, canonicalKey);
-            processedKeys.add(key);
+        if (matchConfig && matchConfig.length > 0) {
+            // --- MANIFEST MODE ---
+            // Use the provided JSON keys as the source of truth for order and existence.
+            finalKeys = matchConfig;
             
-            for (const otherKey of allKeys) {
-                if (processedKeys.has(otherKey)) continue;
+            // In manifest mode, we assume the key in the JSON *is* the canonical key.
+            // We map it to itself so the lookup works.
+            finalKeys.forEach(k => canonicalKeyMap.set(k, k));
+
+        } else {
+            // --- AUTO DISCOVERY MODE ---
+            const allKeys = Array.from(new Set(viewerMaps.flatMap(map => Array.from(map.keys()))));
+            allKeys.sort((a, b) => a.length - b.length);
+
+            const processedKeys = new Set<string>();
+
+            for (const key of allKeys) {
+                if (processedKeys.has(key)) continue;
+
+                const canonicalKey = key;
+                canonicalKeyMap.set(key, canonicalKey);
+                processedKeys.add(key);
                 
-                if (otherKey.startsWith(key)) {
-                    canonicalKeyMap.set(otherKey, canonicalKey);
-                    processedKeys.add(otherKey);
+                for (const otherKey of allKeys) {
+                    if (processedKeys.has(otherKey)) continue;
+                    
+                    if (otherKey.startsWith(key)) {
+                        canonicalKeyMap.set(otherKey, canonicalKey);
+                        processedKeys.add(otherKey);
+                    }
                 }
             }
+            finalKeys = Array.from(new Set(canonicalKeyMap.values())).sort();
         }
-        
-        const finalKeys = Array.from(new Set(canonicalKeyMap.values())).sort();
 
         const data = finalKeys.map(canonicalKey => {
             const groupKeys: string[] = [];
+            
+            // Find all variations of keys that map to this canonical key
+            // (Mostly relevant for Auto Discovery mode, but safe for Manifest mode too)
             canonicalKeyMap.forEach((cKey, oKey) => {
                 if (cKey === canonicalKey) {
                     groupKeys.push(oKey);
                 }
             });
+
+            // If we are in manifest mode, ensure the key itself is looked up
+            if (matchConfig && !groupKeys.includes(canonicalKey)) {
+                groupKeys.push(canonicalKey);
+            }
 
             const findInMap = (map: Map<string, Asset>) => {
                 for (const key of groupKeys) {
@@ -118,7 +143,11 @@ export const useFileProcessor = (
                 return findInMap(map) || null;
             });
 
-            return { key: canonicalKey, assets };
+            return { 
+                key: canonicalKey, 
+                assets,
+                votes: {} // Initialize with empty votes
+            };
         });
 
         setComparisonData(data);
@@ -130,7 +159,7 @@ export const useFileProcessor = (
     return () => {
       objectUrls.forEach(URL.revokeObjectURL);
     };
-  }, [viewers]);
+  }, [viewers, matchConfig]); // Re-run if viewers OR matchConfig changes
 
   return { comparisonData, isLoading };
 };
