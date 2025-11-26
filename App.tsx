@@ -4,7 +4,7 @@ import { ViewerCard } from './components/ViewerCard';
 import { ComparisonView, FilterControls } from './components/ComparisonView';
 import { useFileProcessor } from './hooks/useFileProcessor';
 import type { Viewer, ComparisonItem } from './types';
-import { PlusIcon, DownloadIcon, UploadCloudIcon, ChartBarIcon, ClipboardListIcon, CloseIcon, QuestionMarkCircleIcon, SettingsIcon } from './components/icons';
+import { PlusIcon, DownloadIcon, UploadCloudIcon, ChartBarIcon, ClipboardListIcon, CloseIcon, QuestionMarkCircleIcon, SettingsIcon, FileIcon } from './components/icons';
 import { ResizeHandle } from './components/ResizeHandle';
 import { SummaryDrawer } from './components/SummaryDrawer';
 import { OnboardingModal } from './components/OnboardingModal';
@@ -202,6 +202,7 @@ const App: React.FC = () => {
             const raw = JSON.parse(e.target?.result as string);
             
             let itemsToImport: any[] = [];
+            let importedCategories: string[] = [];
             
             // Handle V2 format (with meta) vs V1 format (array)
             if (Array.isArray(raw)) {
@@ -211,30 +212,39 @@ const App: React.FC = () => {
                 // V2 Import
                 itemsToImport = raw.items;
                 if (raw.meta && raw.meta.categories) {
-                    // Optionally merge categories? For now, we just add missing ones
-                    const importedCats = raw.meta.categories;
-                    setVoteCategories(prev => {
-                        const newCats = [...prev];
-                        importedCats.forEach((c: string) => {
-                            if (!newCats.includes(c)) newCats.push(c);
-                        });
-                        return newCats;
-                    });
+                    importedCategories = raw.meta.categories;
                 }
             } else {
                  throw new Error("Invalid format");
             }
 
+            // Update Categories: Merge imported categories if they don't exist
+            let newCategoriesCount = 0;
+            if (importedCategories.length > 0) {
+                 setVoteCategories(prev => {
+                    const newCats = [...prev];
+                    importedCategories.forEach((c: string) => {
+                        if (!newCats.includes(c)) {
+                            newCats.push(c);
+                            newCategoriesCount++;
+                        }
+                    });
+                    return newCats;
+                });
+            }
+
             const resultsMap = new Map(itemsToImport.map(item => [item.key, item]));
+            let updatedItemsCount = 0;
             
             setComparisonItems(prev => prev.map(item => {
                 if (resultsMap.has(item.key)) {
+                    updatedItemsCount++;
                     const imported = resultsMap.get(item.key)!;
                     
                     // Migrate 'vote' (string) to 'votes' (object) if needed
                     let votes = imported.votes || {};
                     if (imported.vote && typeof imported.vote === 'string') {
-                        // Map legacy vote to first default category or "General"
+                        // Map legacy vote to first default category or "Material"
                         votes[voteCategories[0] || "Material"] = imported.vote;
                     }
 
@@ -242,6 +252,10 @@ const App: React.FC = () => {
                 }
                 return item;
             }));
+            
+            setTimeout(() => {
+                alert(`Import Successful!\n\n• Synced ${updatedItemsCount} items.\n• Merged ${newCategoriesCount} new categories.`);
+            }, 100);
 
         } catch (error) {
             alert("Failed to import file. Make sure it's a valid JSON file exported from this tool.");
@@ -289,6 +303,20 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const handleDownloadTemplate = () => {
+    const template = [
+      "asset_01",
+      "asset_02",
+      "character_A",
+      "prop_B"
+    ];
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(template, null, 2))}`;
+    const link = document.createElement("a");
+    link.href = jsonString;
+    link.download = "manifest_template.json";
+    link.click();
   };
 
   const clearManifest = () => {
@@ -458,6 +486,15 @@ const App: React.FC = () => {
                     </button>
                 )}
             </div>
+
+            <button
+              onClick={handleDownloadTemplate}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+              title="Download Manifest Template"
+            >
+              <FileIcon className="w-5 h-5" />
+              Template
+            </button>
 
             <button
               onClick={() => importFileRef.current?.click()}
