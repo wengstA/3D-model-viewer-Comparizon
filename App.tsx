@@ -4,17 +4,20 @@ import { ViewerCard } from './components/ViewerCard';
 import { ComparisonView, FilterControls } from './components/ComparisonView';
 import { useFileProcessor } from './hooks/useFileProcessor';
 import type { Viewer, ComparisonItem } from './types';
-import { PlusIcon, DownloadIcon, UploadCloudIcon, ChartBarIcon, ClipboardListIcon, CloseIcon, QuestionMarkCircleIcon, SettingsIcon, FileIcon } from './components/icons';
+import { PlusIcon, DownloadIcon, UploadCloudIcon, ChartBarIcon, ClipboardListIcon, CloseIcon, QuestionMarkCircleIcon, SettingsIcon, FileIcon, InfoIcon } from './components/icons';
 import { ResizeHandle } from './components/ResizeHandle';
 import { SummaryDrawer } from './components/SummaryDrawer';
 import { OnboardingModal } from './components/OnboardingModal';
 import { VoteCategoryConfig } from './components/VoteCategoryConfig';
+import { ManifestHelpModal } from './components/ManifestHelpModal';
+import { StorageHelpModal } from './components/StorageHelpModal';
 
 const DEFAULT_CATEGORIES = ["Material", "Texture", "Geometry", "Consistency", "Background Separation"];
 
 const App: React.FC = () => {
   const [viewers, setViewers] = useState<Viewer[]>([
     { id: `viewer-${Date.now()}-1`, title: 'Input Images', files: null, directoryName: null, flex: 1 },
+    { id: `viewer-${Date.now()}-bg`, title: 'Remove BG', files: null, directoryName: null, flex: 1 },
     { id: `viewer-${Date.now()}-2`, title: 'Old Model', files: null, directoryName: null, flex: 1 },
     { id: `viewer-${Date.now()}-3`, title: 'New Model', files: null, directoryName: null, flex: 1 },
   ]);
@@ -27,6 +30,10 @@ const App: React.FC = () => {
 
   // Manifest Config State (for JSON name matching)
   const [matchConfig, setMatchConfig] = useState<string[] | null>(null);
+  const [isManifestHelpOpen, setManifestHelpOpen] = useState(false);
+
+  // Storage Help State
+  const [isStorageHelpOpen, setStorageHelpOpen] = useState(false);
 
   const { comparisonData, isLoading } = useFileProcessor(viewers, matchConfig);
   
@@ -307,10 +314,9 @@ const App: React.FC = () => {
 
   const handleDownloadTemplate = () => {
     const template = [
-      "asset_01",
-      "asset_02",
-      "character_A",
-      "prop_B"
+      { key: "asset_01", note: "Matches asset_01.glb, asset_01.png, etc" },
+      { key: "character_A", note: "Filename must be exactly 'character_A'" },
+      { key: "prop_B", note: "System ignores extensions" }
     ];
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(template, null, 2))}`;
     const link = document.createElement("a");
@@ -463,8 +469,8 @@ const App: React.FC = () => {
               className="hidden"
             />
             
-            {/* Manifest Upload Button */}
-            <div className="relative group">
+            {/* Manifest Upload Group */}
+            <div className="relative group flex items-center gap-1">
                  <button
                     onClick={() => importManifestRef.current?.click()}
                     className={`flex items-center gap-2 px-4 py-2 border rounded-lg shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 ${
@@ -476,10 +482,18 @@ const App: React.FC = () => {
                     <ClipboardListIcon className="w-5 h-5" />
                     {matchConfig ? 'Manifest Active' : 'Upload Manifest'}
                 </button>
+                <button
+                    onClick={() => setManifestHelpOpen(true)}
+                    className="p-2 bg-white border border-gray-300 rounded-full text-gray-500 hover:text-sky-600 hover:bg-gray-50 focus:outline-none"
+                    title="How does manifest matching work?"
+                >
+                    <InfoIcon className="w-5 h-5" />
+                </button>
+
                 {matchConfig && (
                     <button
                         onClick={clearManifest}
-                        className="absolute -top-2 -right-2 bg-gray-500 text-white rounded-full p-1 shadow hover:bg-red-500 transition-colors"
+                        className="absolute -top-2 -right-2 bg-gray-500 text-white rounded-full p-1 shadow hover:bg-red-500 transition-colors z-10"
                         title="Clear Manifest"
                     >
                         <CloseIcon className="w-3 h-3" />
@@ -496,20 +510,35 @@ const App: React.FC = () => {
               Template
             </button>
 
-            <button
-              onClick={() => importFileRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
-            >
-              <UploadCloudIcon className="w-5 h-5" />
-              Import Results
-            </button>
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
-            >
-              <DownloadIcon className="w-5 h-5" />
-              Export Results
-            </button>
+            {/* Storage Group */}
+            <div className="flex items-center gap-1">
+                <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
+                    <button
+                        onClick={() => importFileRef.current?.click()}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none border-r border-gray-200"
+                        title="Load previous votes and tags"
+                    >
+                        <UploadCloudIcon className="w-5 h-5" />
+                        Import
+                    </button>
+                    <button
+                        onClick={handleExport}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
+                        title="Save current votes and tags"
+                    >
+                        <DownloadIcon className="w-5 h-5" />
+                        Export
+                    </button>
+                </div>
+                <button
+                    onClick={() => setStorageHelpOpen(true)}
+                    className="p-2 bg-white border border-gray-300 rounded-full text-gray-500 hover:text-sky-600 hover:bg-gray-50 focus:outline-none"
+                    title="How do Import/Export work?"
+                >
+                    <InfoIcon className="w-5 h-5" />
+                </button>
+            </div>
+
              <button
               onClick={() => setCategoryConfigOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
@@ -523,7 +552,7 @@ const App: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 bg-sky-600 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
             >
               <ChartBarIcon className="w-5 h-5" />
-              Show Summary
+              Summary
             </button>
             <button
               onClick={() => setOnboardingOpen(true)}
@@ -615,6 +644,16 @@ const App: React.FC = () => {
         <OnboardingModal 
             isOpen={isOnboardingOpen}
             onClose={closeOnboarding}
+        />
+        
+        <ManifestHelpModal
+            isOpen={isManifestHelpOpen}
+            onClose={() => setManifestHelpOpen(false)}
+        />
+
+        <StorageHelpModal
+            isOpen={isStorageHelpOpen}
+            onClose={() => setStorageHelpOpen(false)}
         />
       </main>
     </div>
