@@ -138,6 +138,28 @@ const App: React.FC = () => {
       })
     );
   };
+
+  // New function for Quick Vote (Batch Vote)
+  const handleBatchVote = (itemKey: string, voteValue: string | null) => {
+    setComparisonItems(prevItems =>
+      prevItems.map(item => {
+        if (item.key !== itemKey) return item;
+
+        // If null, clear all votes
+        if (voteValue === null) {
+            return { ...item, votes: {} };
+        }
+
+        // Otherwise, apply this vote to ALL active categories
+        const newVotes = { ...item.votes };
+        voteCategories.forEach(cat => {
+            newVotes[cat] = voteValue;
+        });
+
+        return { ...item, votes: newVotes };
+      })
+    );
+  };
   
   const handleTagsUpdate = (itemKey: string, newTags: string[]) => {
     setComparisonItems(prevItems =>
@@ -619,6 +641,7 @@ const App: React.FC = () => {
                 isLoading={isLoading} 
                 viewers={viewers}
                 onVote={handleVote}
+                onBatchVote={handleBatchVote}
                 onTagsUpdate={handleTagsUpdate}
                 comparisonItems={comparisonItems}
                 hasActiveFilters={hasActiveFilters}

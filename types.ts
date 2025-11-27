@@ -1,6 +1,8 @@
+
 export interface Asset {
-  url: string;
+  url?: string; // Optional now, usually we use the file directly
   path: string;
+  file: File;
 }
 
 export interface Viewer {

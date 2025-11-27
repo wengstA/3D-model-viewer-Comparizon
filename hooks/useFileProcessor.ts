@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import type { ComparisonItem, Viewer, Asset } from '../types';
 
@@ -39,11 +40,10 @@ export const useFileProcessor = (
   const [isLoading, setIsLoading] = useState(false);
   
   useEffect(() => {
-    let objectUrls: string[] = [];
+    // Optimization: We NO LONGER create Blob URLs here.
+    // We only map the file structure. URLs are created lazily in the view.
     
     const processFiles = () => {
-        // If we have no files and no config, don't do anything (unless we want to show empty rows from config? 
-        // For now, let's assume we need at least one viewer or a config to start processing).
         if ((!viewers || viewers.every(v => !v.files)) && !matchConfig) {
             setComparisonData([]);
             setIsLoading(false);
@@ -63,11 +63,9 @@ export const useFileProcessor = (
                     const decodedRelativePath = decodeFileName(relativePath);
                     const key = getPathWithoutExtension(decodedRelativePath);
                     if (key) {
-                        const url = URL.createObjectURL(file);
-                        objectUrls.push(url);
-                        // Store both exact key and potentially others if needed, 
-                        // but for now simple key matching.
-                        map.set(key, { url, path: relativePath });
+                        // Store the raw file object. 
+                        // Do NOT create ObjectURL here to save memory.
+                        map.set(key, { path: relativePath, file: file });
                     }
                 } catch (error) {
                     console.error("Error processing file:", file.name, error);
@@ -82,13 +80,8 @@ export const useFileProcessor = (
 
         if (matchConfig && matchConfig.length > 0) {
             // --- MANIFEST MODE ---
-            // Use the provided JSON keys as the source of truth for order and existence.
             finalKeys = matchConfig;
-            
-            // In manifest mode, we assume the key in the JSON *is* the canonical key.
-            // We map it to itself so the lookup works.
             finalKeys.forEach(k => canonicalKeyMap.set(k, k));
-
         } else {
             // --- AUTO DISCOVERY MODE ---
             const allKeys = Array.from(new Set(viewerMaps.flatMap(map => Array.from(map.keys()))));
@@ -105,7 +98,6 @@ export const useFileProcessor = (
                 
                 for (const otherKey of allKeys) {
                     if (processedKeys.has(otherKey)) continue;
-                    
                     if (otherKey.startsWith(key)) {
                         canonicalKeyMap.set(otherKey, canonicalKey);
                         processedKeys.add(otherKey);
@@ -118,15 +110,12 @@ export const useFileProcessor = (
         const data = finalKeys.map(canonicalKey => {
             const groupKeys: string[] = [];
             
-            // Find all variations of keys that map to this canonical key
-            // (Mostly relevant for Auto Discovery mode, but safe for Manifest mode too)
             canonicalKeyMap.forEach((cKey, oKey) => {
                 if (cKey === canonicalKey) {
                     groupKeys.push(oKey);
                 }
             });
 
-            // If we are in manifest mode, ensure the key itself is looked up
             if (matchConfig && !groupKeys.includes(canonicalKey)) {
                 groupKeys.push(canonicalKey);
             }
@@ -146,7 +135,7 @@ export const useFileProcessor = (
             return { 
                 key: canonicalKey, 
                 assets,
-                votes: {} // Initialize with empty votes
+                votes: {} 
             };
         });
 
@@ -156,10 +145,8 @@ export const useFileProcessor = (
     
     processFiles();
 
-    return () => {
-      objectUrls.forEach(URL.revokeObjectURL);
-    };
-  }, [viewers, matchConfig]); // Re-run if viewers OR matchConfig changes
+    // No cleanup needed for objectUrls anymore as we don't create them here
+  }, [viewers, matchConfig]);
 
   return { comparisonData, isLoading };
 };

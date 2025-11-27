@@ -1,15 +1,17 @@
+
 // FIX: An explicit side-effect import is needed to ensure TypeScript loads the
 // global type augmentations for custom elements from 'types.ts'.
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ComparisonItem, Viewer, Asset } from '../types';
 import { Placeholder } from './Placeholder';
-import { SpinnerIcon, TagIcon, CloseIcon } from './icons';
+import { SpinnerIcon, TagIcon, CloseIcon, FileIcon, InfoIcon } from './icons';
 
 interface ComparisonViewProps {
   items: ComparisonItem[];
   isLoading: boolean;
   viewers: Viewer[];
   onVote: (itemKey: string, category: string, vote: string) => void;
+  onBatchVote: (itemKey: string, vote: string | null) => void;
   onTagsUpdate: (itemKey: string, tags: string[]) => void;
   comparisonItems: ComparisonItem[];
   hasActiveFilters: boolean;
@@ -23,38 +25,93 @@ const is3DModel = (filePath: string | null): boolean => {
     return supportedExtensions.some(ext => lowercased.endsWith(ext));
 };
 
+// --- Custom Hook for Memory Management ---
+// Only creates a Blob URL when the component is mounted and we have a file.
+// Revokes it immediately on unmount or file change.
+const useObjectUrl = (file: File | null) => {
+    const [url, setUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!file) {
+            setUrl(null);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        setUrl(objectUrl);
+
+        return () => {
+            URL.revokeObjectURL(objectUrl);
+        };
+    }, [file]);
+
+    return url;
+};
+
+// --- RenderableAsset Component ---
+// Now accepts `file` instead of `url`. Handles lazy loading based on `isVisible`.
 const RenderableAsset: React.FC<{ 
     asset: Asset | null,
     altText: string, 
     placeholderText: string,
-    isTall?: boolean
-}> = ({ asset, altText, placeholderText, isTall }) => {
+    isTall?: boolean,
+    isVisible: boolean
+}> = ({ asset, altText, placeholderText, isTall, isVisible }) => {
     const aspectRatioClass = isTall ? 'aspect-[4/5]' : 'aspect-square';
+    
+    // Lazy Load: If not visible, we pass null to useObjectUrl, so no Blob is created.
+    // If visible, we pass the file, and a Blob is created.
+    const url = useObjectUrl(isVisible ? (asset?.file || null) : null);
+
+    const wrapperClassNames = `w-full rounded-md ${aspectRatioClass} bg-black/5 backdrop-blur-sm border border-gray-200 overflow-hidden relative transition-colors duration-300`;
+    const innerClassNames = `w-full h-full`;
 
     if (!asset) {
         return <Placeholder text={placeholderText} aspectRatioClass={aspectRatioClass} />;
     }
 
-    const wrapperClassNames = `w-full rounded-md ${aspectRatioClass} bg-black/5 backdrop-blur-sm border border-gray-200 overflow-hidden`;
-    const innerClassNames = `w-full h-full`;
+    // Lazy Loading Placeholder (Skeleton)
+    // When the item is off-screen (not visible), we show this lightweight placeholder
+    // instead of the heavy 3D viewer or Image.
+    if (!isVisible) {
+         return (
+            <div className={`${wrapperClassNames} bg-gray-100 animate-pulse`}>
+               <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                  <FileIcon className="w-8 h-8 text-gray-400" />
+               </div>
+            </div>
+         );
+    }
 
     if (is3DModel(asset.path)) {
         return (
             <div className={wrapperClassNames}>
-                {/* @ts-ignore */}
-                <model-viewer
-                    src={asset.url}
-                    alt={altText}
-                    camera-controls
-                    className={innerClassNames}
-                />
+                {url ? (
+                    // @ts-ignore
+                    <model-viewer
+                        src={url}
+                        alt={altText}
+                        camera-controls
+                        className={innerClassNames}
+                    />
+                ) : (
+                    <div className="flex items-center justify-center h-full">
+                        <SpinnerIcon className="h-6 w-6 text-gray-400" />
+                    </div>
+                )}
             </div>
         );
     }
 
     return (
         <div className={wrapperClassNames}>
-            <img src={asset.url} alt={altText} className={`${innerClassNames} object-contain`} />
+            {url ? (
+                <img src={url} alt={altText} className={`${innerClassNames} object-contain`} />
+            ) : (
+                 <div className="flex items-center justify-center h-full">
+                    <SpinnerIcon className="h-6 w-6 text-gray-400" />
+                </div>
+            )}
         </div>
     );
 };
@@ -214,19 +271,47 @@ interface ComparisonCardProps {
     item: ComparisonItem;
     viewers: Viewer[];
     onVote: (itemKey: string, category: string, vote: string) => void;
+    onBatchVote: (itemKey: string, vote: string | null) => void;
     onTagsUpdate: (itemKey: string, tags: string[]) => void;
     allTags: string[];
     voteCategories: string[];
 }
 
-const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onTagsUpdate, allTags, voteCategories }) => {
+const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, onBatchVote, onTagsUpdate, allTags, voteCategories }) => {
+    // --- VIRTUALIZATION LOGIC ---
+    // We use IntersectionObserver to check if this specific card is near the viewport.
+    const [isVisible, setIsVisible] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsVisible(entry.isIntersecting);
+            },
+            { 
+                // Load when within 500px of the viewport (about 1-2 screen heights)
+                // This ensures smooth scrolling without seeing "pop-in" too often,
+                // but still aggressively unloads assets when far away.
+                rootMargin: '500px 0px 500px 0px' 
+            }
+        );
+
+        if (cardRef.current) {
+            observer.observe(cardRef.current);
+        }
+
+        return () => {
+            if (cardRef.current) {
+                observer.disconnect();
+            }
+        };
+    }, []);
+    // ----------------------------
+
     const gridStyle = {
       gridTemplateColumns: viewers.length > 0 ? viewers.map(v => `${v.flex}fr`).join(' ') : '1fr'
     };
     
-    // Calculate border color based on votes.
-    // If any vote is 'all_bad', red. If any vote is valid viewer, blue.
-    // If mixed, prefer blue.
     let voteStatusBorder = 'border-l-4 border-transparent';
     const hasAnyVote = Object.keys(item.votes).length > 0;
     
@@ -241,7 +326,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
     }
 
     return (
-        <div className={`bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm transition-all ${voteStatusBorder}`}>
+        <div ref={cardRef} className={`bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm transition-all ${voteStatusBorder}`}>
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
                 <p className="text-sm font-mono text-cyan-600 break-all" title={item.key}>{item.key}</p>
             </div>
@@ -256,6 +341,7 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
                             altText={viewer.title}
                             placeholderText={`No file in "${viewer.title}"`}
                             isTall={is3DModel(item.assets[index]?.path)}
+                            isVisible={isVisible}
                         />
                     </div>
                 ))}
@@ -263,6 +349,49 @@ const ComparisonCard: React.FC<ComparisonCardProps> = ({ item, viewers, onVote, 
              <div className="p-4 bg-gray-50/70 border-t border-gray-200 space-y-6">
                 <div>
                     <h5 className="text-sm font-semibold mb-3 text-gray-600">Voting:</h5>
+                    
+                    {/* --- Quick Vote Toolbar --- */}
+                    <div className="mb-3 pb-3 border-b border-gray-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <div className="flex items-center gap-1 w-32">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Quick Vote</span>
+                                <div className="group relative">
+                                    <InfoIcon className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                                    <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 w-max px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                        Apply decision to all categories at once
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 flex-1">
+                                {viewers.map(viewer => (
+                                    <button
+                                        key={viewer.id}
+                                        onClick={() => onBatchVote(item.key, viewer.id)}
+                                        className="px-3 py-1 text-xs font-bold rounded-md bg-gray-100 text-gray-700 hover:bg-sky-100 hover:text-sky-700 border border-gray-300 transition-colors"
+                                        title={`Mark ${viewer.title} as best in all categories`}
+                                    >
+                                        🏆 {viewer.title}
+                                    </button>
+                                ))}
+                                <button
+                                    onClick={() => onBatchVote(item.key, 'all_bad')}
+                                    className="px-3 py-1 text-xs font-bold rounded-md bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-700 border border-gray-300 transition-colors"
+                                    title="Mark all categories as Bad"
+                                >
+                                    👎 All Bad
+                                </button>
+                                <button
+                                    onClick={() => onBatchVote(item.key, null)}
+                                    className="px-3 py-1 text-xs font-medium text-gray-400 hover:text-gray-600 underline ml-2"
+                                    title="Clear all votes"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {/* ------------------------- */}
+
                     <div className="space-y-3">
                         {voteCategories.map(category => (
                             <div key={category} className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -314,7 +443,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     items, 
     isLoading, 
     viewers, 
-    onVote, 
+    onVote,
+    onBatchVote,
     onTagsUpdate,
     comparisonItems,
     hasActiveFilters,
@@ -382,6 +512,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                     item={item} 
                     viewers={viewers}
                     onVote={onVote}
+                    onBatchVote={onBatchVote}
                     onTagsUpdate={onTagsUpdate}
                     allTags={allTags}
                     voteCategories={voteCategories}
